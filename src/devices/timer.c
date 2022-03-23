@@ -96,11 +96,14 @@ timer_sleep (int64_t ticks)
   ASSERT (intr_get_level () == INTR_ON);
   //while (timer_elapsed (start) < ticks) 
   //  thread_yield ();
-
+  enum intr_level old_level = intr_disable();
+  
   /* ++++ Project1.1 Alarm Clock ++++ */
   //if(timer_elapsed(start) < ticks)
   thread_sleep(start+ticks);
   /* ++++++++++++++++++++++++++++++++ */
+
+  intr_set_level(old_level);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -179,7 +182,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
-
+  
   /* ++++ Project1.6 Scheduling Latency Measurement*/
   if(thread_report_latency){
     struct list_elem *e;
