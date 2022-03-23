@@ -309,9 +309,23 @@ ticks   A   B   C     A    B    C   to run
 >> C3: Did any ambiguities in the scheduler specification make values
 >> in the table uncertain?  If so, what rule did you use to resolve
 >> them?  Does this match the behavior of your scheduler?
+네, 예를 들어 24->28로 가는 경우 thread B를 실행해야할지 C를 실행하는 것이
+적합한지 뭐가 더 효율적인지 모호하다. 
+즉 priority가 수렴하여서 계속 같은 값들을 가지면 어떤 thread를 선택하는 것이
+모호하다. 또한 표 자체나 spectification에서 priority 업데이트 후나 전 중 언제 recnet_cpu를 업데이트 해야하는지
+명확하지 않다. 
+**나의 구현에서는 우선 load_avg를 계산하고, priority를 먼저 계산한 후 recent_cpu를 먼저 계산한다.**
 
 >> C4: How is the way you divided the cost of scheduling between code
 >> inside and outside interrupt context likely to affect performance?
+specification에서는 모든 thread의 우선 순위를 4틱마다 update하도록 지정하지만,
+다른 thread의 priority에 영향을 주는 요소인 load_avg가 변경될 때까지 priority를 변경할 수 없기 때문에(C3에서 처럼)
+현재 thread의 우선 순위만 timer_interrupt( )에서 mlfqs_priority(thread_current())로 update한다.
+전부 안해도 되니 timer interrupt의 code 실행 시간을 줄임으로써 성능을 향상시킬 수 있다.
+대부분의 MLFQS scheduling은 inside interrupt context에서 발생한다. interrupt를 outside에서
+scheduling을 한다면 thread로부터 외부 context에서 실행함으로써 recent_cpu를 오히려 늘려 시간을 뺏어 
+원치않은 cpu사용과 잘못된 priority 계산을 방지하기 위함이다.
+
 
 ---- RATIONALE ----
 
@@ -320,12 +334,31 @@ ticks   A   B   C     A    B    C   to run
 >> time to work on this part of the project, how might you choose to
 >> refine or improve your design?
 
+단점은 multi-level feedback queue 스케줄링 방식인데
+Priority에 따라 여러 개(64개)의 Ready Queue가 존재하지 않는다.
+장점은
+하지만 Priority를 recent_cpu, load_avg, nice로 실시간으로 조절하는 것에 집중하여,
+각 thread의 priority가 알아서 각 thread의 상황에 맞게 최적의 가장 높은 priority를 새로 설정하여
+그 thread가 실행되는 것입니다. 또한 부동 소수점 계산 방식이 아닌 고정 소수점 계산 방식을 통해서
+thread의 priority를 구하기 위해 필요한 연산들을 더욱 줄였습니다.
+
+
 >> C6: The assignment explains arithmetic for fixed-point math in
 >> detail, but it leaves it open to you to implement it.  Why did you
 >> decide to implement it the way you did?  If you created an
 >> abstraction layer for fixed-point math, that is, an abstract data
 >> type and/or a set of functions or macros to manipulate fixed-point
 >> numbers, why did you do so?  If not, why not?
+고정 소수점을 사용하게 된 이유는 부동 소수점 방식은 표현할 수 있는 범위가 크지만,
+계산 시간이 길고 복잡하여 kernel을 느리게 만들기 때문에 pintos system이 부동 소수점 방식은
+적합하지 않다. 그래서 1bit, 17bit, 14bit 각각 부호 , 정수부, 소수부가 고정된 방식의 fixed-point 연산을
+사용하기로 했다. 
+integer 표현과 고정 소수점 방식은 위의 bit 구성처럼 전혀 달라 덧셈 뺄셈 나눗셈 곱셈을 두 표현이
+섞인 상태에서 행해졌을 때, 적절하지 않다. 각 표현의 값이 들어오면 하나의 표현으로 계산되는 함수가 필요하고
+이것을 thread.c에 mlfqs의 recent_cpu, load_avg, priority 계산을 위한 함수에 다 집어넣기에는 복잡해서,
+thread/fixed-point.h에 abstraction layer를 만들어 각 int, 고정 소수점 값에 대한 새로운 연산의 함수를 따로 만들어서,
+이 헤더파일을 thread.c에서 include시켜서 mlfqs의 priority 계산을 위해 필요할 때마다 새로운 연산 함수를 쉽게 사용할 수 있도록 했다.
+이는 thread.c에 대한 code의 readbility를 높인다.
 
                SURVEY QUESTIONS
                ================
@@ -338,7 +371,7 @@ the quarter.
 
 >> In your opinion, was this assignment, or any one of the three problems
 >> in it, too easy or too hard?  Did it take too long or too little time?
-too hard. 
+too hard.  too hard. 60시간 정도 걸린 것 같다.
 
 >> Did you find that working on a particular part of the assignment gave
 >> you greater insight into some aspect of OS design?
@@ -347,6 +380,8 @@ too hard.
 >> Is there some particular fact or hint we should give students in
 >> future quarters to help them solve the problems?  Conversely, did you
 >> find any of our guidance to be misleading?
+기존의 https://oslab.kaist.ac.kr/wp-content/uploads/esos_files/courseware/undergraduate/PINTOS/06_Alarm_System_Call.pdf
+이 pdf를 제공할 필요가 있다. 지금 lab document와 ppt는 정말 설명이 부족하다.
 
 >> Do you have any suggestions for the TAs to more effectively assist
 >> students, either for future quarters or the remaining projects?
