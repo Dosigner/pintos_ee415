@@ -8,9 +8,7 @@
 
 >> Fill in the names and email addresses of your group members.
 
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
+Dongju Kim <dongju0531hb@kaist.ac.kr>
 
 ---- PRELIMINARIES ----
 
@@ -21,6 +19,15 @@ FirstName LastName <email@domain.example>
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course staff.
 
+Alarm Scheduling - https://oslab.kaist.ac.kr/wp-content/uploads/esos_files/courseware/undergraduate/PINTOS/06_Alarm_System_Call.pdf
+Priority Scheduling - https://oslab.kaist.ac.kr/wp-content/uploads/esos_files/courseware/undergraduate/PINTOS/07_Priority_Scheduling.pdf
+Priority Inversion Problem - https://oslab.kaist.ac.kr/wp-content/uploads/esos_files/courseware/undergraduate/PINTOS/09_Priority_Inversion_Problem.pdf
+MLFQ Scheduler - https://oslab.kaist.ac.kr/wp-content/uploads/esos_files/courseware/undergraduate/PINTOS/10_Multi-Level_Feedback_Queue_Scheduler.pdf
+https://firecatlibrary.tistory.com/56?category=875424
+4.4BSD Scheduler 개념 - https://poalim.tistory.com/25
+priority donation 이해 - https://firecatlibrary.tistory.com/60?category=875424
+https://poalim.tistory.com/36?category=758538
+
                  ALARM CLOCK
                  ===========
 
@@ -29,27 +36,85 @@ FirstName LastName <email@domain.example>
 >> A1: Copy here the declaration of each new or changed `struct' or
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
+ 
+"sleep_list"는 THREAD_BLOCKED state에 있는 thread들의 list들이다. 
+즉, wake up()을 하기 위해 대기하는 thread들의 list
+	
+	/* Sleep queue. */
+	static struct list sleep_list;
+
+
+struct thread에 추가한 member:
+
+	int64_t wakeup_tick;  /*각 thread마다 BLOCKED에 있을 때 언제 wake up해야 할 tick을 저장하는 변수 */
+    
+
+"global_tick"은 sleep_list에서 wait 중인 thread들의 wakeup_tick 값 중 최소 값을 저장하는 thread.c의 전역 변수
+sleep_list에 있는 thread들 중에서 가장 빨리 wakeup 해야하는 thread의 wakeup_tick을 저장
+	
+	/* inform next to wake up*/
+	static int64_t global_tick;
+
 
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe what happens in a call to timer_sleep(),
 >> including the effects of the timer interrupt handler.
 
+timer_sleep( ) 함수는 running중인 thread에 의해 호출되어, Sleep queue에 삽입하여
+running하지 않을 thread를 반복적으로 cpu위에 올리고 ready_list로 보내는 busy waiting이 일어나지 않도록 함수이다.
+그래서 주어진 os가 부팅 후 시간과 sleep_list에서 잠재울 시간(ticks) 만큼을
+thread_sleep을 호출하여 threa의 깨어나게 될 ticks를 저장하고, sleep_list에 삽입된다.
+그리고 thread_block() 함수를 호출하여 Blocked된 상태로 호출되고, context switching이 일어난다.
+그리고 timer interrupt handler가 주기적으로 호출되면서, timer_sleep()에서 ticks만큼 blocked시킨 thread들 중에서
+(sleep_list 내에 있는 모든) 가장 작은 ticks보다 큰 thread들을 다시 awake 시켜 ready_list로 보낸다. 
+이로써 wake/awake로 구현된 시스템이 cpu가 계속 자원을 소모하는 busy waiting을 해결할 수 있게 된다.
+
+
+
+
 >> A3: What steps are taken to minimize the amount of time spent in
 >> the timer interrupt handler?
+timer interrupt handler의 소모되는 시간을 최소화하기 위해
+thread_awake(ticks)함수가 매우 중요하다.
+이 시간이 최소화되기 위해서는 sleep_list를 딱 한번만 순회하면서 
+thread들을 wake up시키는 것이 필요한다.
+for문을 사용하고 list_begin -> list_end까지 한번만 순회 O(n)으로
+리스트에서 전달인자 ticks보다 작은 wakeup_tick을 가진 thread들을
+thread_unblock() 함수를 호출하여 ready_list에 넣고, thread_ready 상태로 만든다.
+그리고 불필요하게 thread_awake를 호출하여 시간을 낭비하지 않기 위해
+gloabl_ticks값을 가져와(즉 sleep list에서 제일 작은 tick값) 현재 ticks가
+그것보다 큰 경우에만 thread_awake( )를 호출할 수 있도록 했다.
 
 ---- SYNCHRONIZATION ----
 
 >> A4: How are race conditions avoided when multiple threads call
 >> timer_sleep() simultaneously?
+timer_sleep( )이 동시에 여러개 호출되어도 thread_sleep과 timer_sleep에서
+interrupt를 비활성화하기에, 각 thread가 atomic하게 실행될 수 있다.
+즉 interrupt 켜져있을 때 timer_sleep은 실행이 되는데, intr_disable( )로 동시에
+오는 thread를 피할 수 있다.
+
 
 >> A5: How are race conditions avoided when a timer interrupt occurs
 >> during a call to timer_sleep()?
+timer sleep( ) 호출 도중에 timer_interrupt를 피하기 위해서, 
+(역으로 thread_awake( ) 호출되는 것을 막기 위해)
+intr_disable( )함수를 이용하여 현재 interrupt상태를 저장한 후 잠시 interrupt를 끄고 
+thread_sleep() 호출이후에 intr_set_level를 원래대로 복구 시킨다.
+
+
 
 ---- RATIONALE ----
 
 >> A6: Why did you choose this design?  In what ways is it superior to
 >> another design you considered?
+기존 pintos의 loop 기반 waiting을 해결하기 위해. 
+대기해야하는 thread들을 불필요하게 running state가 되지 않도록,  
+sleep_list를 따로 만들어 thread_sleep( ), thread_awake( )함수로 해당 thread들을
+재우게 설계 되었다. 이때 awake할 때는 전역변수 gloabl_ticks(sleep list에서 thread들 중 가장 작은 tick)보다 
+tick이 작은 경우에만 sleep_list를 한번만 순회하여 계산량을 줄였다.
+
 
              PRIORITY SCHEDULING
              ===================
@@ -59,32 +124,142 @@ FirstName LastName <email@domain.example>
 >> B1: Copy here the declaration of each new or changed `struct' or
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
+ 
+
+struct thread에 추가한 member:
+
+	/* Priority Inversion 문제를 막기 위해서 */
+	int init_priority;  /* donation 받기 전 priority를 저장한다 */
+    	struct lock *wait_on_lock; /* nested donation, 내가 lock을 요청하는 thread가 lock을 요청하는 이렇게 쭉 연결된 list이다 */
+	struct list donations; /*donation을 준 thread들의 donation_elem을 저장하는 list이다*/
+	struct list_elem donation_elem /* 다른 thread에게 donation을 준 경우 다른 thread의 donations에 저장하기 위한 element*/
+
 
 >> B2: Explain the data structure used to track priority donation.
 >> Use ASCII art to diagram a nested donation.  (Alternately, submit a
 >> .png file.)
+
+T1   T2   T3     T4  t->wait_on_lock
+ \    /      \    /
+  \  /        \  /
+   \/          \/
+   L1          L2
+    |            |        lock->holder
+   T5          T6       t->wait_on_lock, t->priority = before priority 
+     \        /          (T5의 경우 TI,12 중 더 높은 priority, T6는 T3,T4 중 더 높은 priority)
+      \      /
+       \    /
+         \/
+         L3              lock->holder
+          |
+         T7              
+        
+위의 thread T들은 자신이 요청하는 lock(L)의 holder가 요청하는 lock(L)이렇게
+연결되는 list에 priority donation하면서 tree의 제일 아래 있는 Thread까지
+donation을 하여 가장 높은 우선순위를 가지게 되어 thread가 계속 running하여 공유자원을 
+빨리 다 쓸 수 있도록 하여(critical section을 빨리 벗어나도록), 
+lock을 풀고 연쇄적으로 tree 위의 thread들이 lock을 얻도록 하는 구조이다.
+
 
 ---- ALGORITHMS ----
 
 >> B3: How do you ensure that the highest priority thread waiting for
 >> a lock, semaphore, or condition variable wakes up first?
 
+B2에서 설명한 것처럼, priority inversion 문제가 생기다 보니깐,
+하나의 lock에 대해 한 thread가 점유를 하지 못하기 때문에,
+가장 높은 우선순위의 thread가 자신의 priority를 자신이 획득하고자 하는 lock의 tree구조로
+연결된 wait_on_lock에 따라 제일 끝단의 thread가 lock을 해제하여 연쇄적으로 연결된 thread들이
+lock을 release할 수 있도록 한다.
+
+condition variable에서는 해당 조건을 기다릴 때(cond_wait()) struct cond의 waiters에 삽입할 때 해당 list의 원소
+(semaphore_elem) 이 소지하는 thread의 우선순위 대로 waiters에 삽입함으로써,
+cond_signal( )함수가 가장 우선순위가 높은 waiters를 깨워서 lock을 획득할 수 있도록 한다.
+
+semaphore의 경우에는 현재 lock이나 등을 획득가능한 수를 semaphore->value를 통해 나타내고 있다.
+이때 sema->value가 0이어서 획득할 수 없을 때 semaphore->waiters list에 현재 thread를 우선순위에 맞게
+삽입할 수 있도록 한다. 그리고 lock_release되거나 cond_signal이 된 경우 semaphore의 waiter에서 기다리고 있는
+thread를 unblock시키기 위해 이전에 sema->waiter를 한번 더 정렬하여 가장 높은 우선순위의 thread가 ready_list
+에 wakeup하도록 한다.
+
+
+
 >> B4: Describe the sequence of events when a call to lock_acquire()
 >> causes a priority donation.  How is nested donation handled?
+현재 thread가 lock_acquire( )함수가 호출되면, 해당 lock을 wait_on_lock에 연결시키고.
+해당 lock이 점유하고 있는 thread의 donations list에 donation한 각 thread들의 우선순위
+순서 대로 현재 thread의 donation_elem이 삽입된다.
+donate_priority( )함수가 호출된다. 현재 thread의 priority가
+nested donation으로써 위에서 내가 원하는 lock의 thread를 B2의 tree구조대로 연결된
+thread를 따라가서 t=t->wait_on_lock->holder를 따라가면서 연결된 각 thread에게 
+현재 running 중인 thread의 가장 높은 priority를 donation할 수 있게 된다.
+따라서 자신의 높은 priority를 원하는 lock의 holder(thread) 부여함으로써 
+기존에 priority inversion으로 생겼던 영원히 blocked list에 갇혀서 lock을 대기하고 있는
+가장 높은 thread가 running되지 못하는 starvation 문제를 해결할 수 있다.
+
+
 
 >> B5: Describe the sequence of events when lock_release() is called
 >> on a lock that a higher-priority thread is waiting for.
+
+lock을 보유하고 있는 thread가 lock_release(lock) 함수를 호출하게 되면
+B4에서 우선순위가 더 높은 thread에게 받았던 priority를 다시 원래의 자신의 priority로 복구해야한다.
+그래서 remove_with_lock(lock) 함수를 호출한다. (참고로 lock을 해제할때는 running중인 thread만 해제가능)
+여기서 자신에게 multiple thread가 donation한 경우가 있을 수 있기에, 
+자신의 donations list를 순회하며 donation을 해준 thread들의 wait_on_lock과 내가 풀고자하는 lock과 일치한
+원소만 자신이 받은 donations list에서 제거한다. 이로써 
+그 후 refresh_priority( )함수를 호출하여, 현재 thread(lock을 요청한)의 donation받은 priority를 이전 자신의
+init_priority로 다시 복구한다. 그 후 변경된 자신의 donations list를 우선순위대로 재정렬하고,
+이 donations list에서 가장 우선순위가 높은 첫번째 원소(donation_elem)이 가리키는 thread의 priority를
+현재 priority로 재 update한다. (이는 현재 thread의 우선순위를 다시 높여서, 
+다른 lock들을 대기중인 thread들에게 lock을 주기 위함이다. (다시 생겨버리는 priority inversion 문제 해결))
+그리고 sema_up( )함수를 호출하여 semaphore의 waiters에서 가장 우선순위가 높은 thread를 unblock시킨다.
+
 
 ---- SYNCHRONIZATION ----
 
 >> B6: Describe a potential race in thread_set_priority() and explain
 >> how your implementation avoids it.  Can you use a lock to avoid
 >> this race?
+thread_set_priority( )를 하면서 thread 하나가 priority가 변경되면 새로운 priority로 변경되면서
+donation에 영향을 줄 수 있다.
+따라서 refresh_priority( ) 함수로 B5에서 설명한 것 처럼 현재 thread의 priority를 이전 priority를 바꾸는 동시에
+그 후 수정된 자신의 priority보다 donations list에서 더 큰 priority가 있는 경우에 다시 donation을 받아야 한다.
+그 후 변경된 priority와 ready_list에 있는 priority와 비교하여 더 높은 thread에게 cpu를 양보해야 한다.
+그래서 thread_test_preemption( )함수 호출.
+thread_set_priority( )에 사용되는 변수 priority와 상호작용하는 함수들 주위에 lock을 도입할 수 있다.
+lock함수의 호출은 thread가 지니는 lock의 list를 변경할 수 있다.
+lock의 구현은 thread가 보유하고 있는 lock의 list들을 수정한다. 어떤경우에는 lock이 스스로 호출되어
+호출되어 deadlock상태가 발생할 수 있다.
+
 
 ---- RATIONALE ----
 
 >> B7: Why did you choose this design?  In what ways is it superior to
 >> another design you considered?
+기존의 round robin으로만 구현되던 scheduler에 우선순위도 고려하기 위해 scheduling했다.
+이때 solution으로 새로 추가된 thread가 실행 중인 thread보다 priority가 높은 경우
+cpu를 선점할 수 있도록 thread_test_preemption( )함수를 호출한다.
+그리고 이 함수는 현재의 thread의 priority가 도중에 변경되는 경우에도 호출하게 하여.
+항상 높은 priority의 thread가 running되도록 디자인 되었다.
+
+ready_list를 우선정렬하기 위해 기존의 running이나 blocked상태를 ready state(ready_list)로 바뀌는 함수인
+thread_unblock( ) thread_yield( ) 함수에서 호출될 때 synch.c에 있는 list_insert_ordered( )함수를 이용하여
+ready_list가 update될 때마다 priority순으로 다시 정렬하고자하여 항상 높은 priority의 thread가 running되도록 디자인 되었다.
+
+또한 더 나아가 synchornization을 할 수 있도록 여러 thread가 lock, semaphore, condition variable을 얻기 위해
+기다릴 경우 우선순위가 가장 높은 thread가 CPU를 점유하도록 구현하였다.
+그래서 SEMAPHORE의 waiters 리스트에 삽입될 때 우선순위대로 삽입되록 하였고, 역시 condition variable의 waiters list도
+우선순위대로 삽입될 수 있도록 구현하였다.
+
+여기서 우선순위가 낮은 thread가 lock을 점유하면서 더 높은 우선순위 thread가 blocked되어, 중간 우선순위의 thread가
+선점되어 priority inversion이 발생하는 문제를 막기 위해, 가장 높은 우선순위 thread의 lock을 가지고 있는 thread가 원하는 lock
+의 thread 이렇게 연쇄적인 linked list로 연결하여 가장 높은 prioirty를 연결된 thread에게 부여하면서 lock을 
+빨리 release( )할 수 있도록 구현하였다.(priority donation, nested donation)
+또한 thread마다 donations와 donation_elem을 만들어서 하나의 lock에 대해 여러 thread가 대기하고 있을 때 높은 priority순으로
+pop될 수 있도록 하여 multiple donation도 구현하였다. 
+
+
 
               ADVANCED SCHEDULER
               ==================
@@ -94,6 +269,21 @@ FirstName LastName <email@domain.example>
 >> C1: Copy here the declaration of each new or changed `struct' or
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
+목적은 I/O 요청을 처리하지만, 복잡한 연산이 없고 그 반대인 THREAD들이 존재하기에,
+좀 더 효율적인 프로그램에게 Scheduler를 효율적으로 사용하기 위해 priority를 recent_cpu와 nice를 바탕으로 설정하는 방법 제시
+
+struct thread에 추가한 member:
+
+	/* Advanced scheduler를 위한 */
+	int nice; // 다른 thread에게 얼마나 자신의 것(CPU time)을 양보하는 지
+	int recent_cpu; // 최근에 얼마나 많은 cpu time을 사용했는가를 표현 timer interrupt마다 1씩 증가, 매 1초마다 재 계산
+
+recent_cpu 계산의 
+	int load avg; // 최근 1분동안 수행 가능한 프로세스의 평균 개수, exponentially weighted moving average로 계산됨
+
+mlfqs_load_avg( ) 내에 있는 변수
+	int ready_threads // ready_list에 있는 thread들과 실행중인 thread의 갯수(idle 제외)
+
 
 ---- ALGORITHMS ----
 
@@ -103,18 +293,18 @@ FirstName LastName <email@domain.example>
 >> thread after each given number of timer ticks:
 
 timer  recent_cpu    priority   thread
-ticks   A   B   C   A   B   C   to run
------  --  --  --  --  --  --   ------
- 0
- 4
- 8
-12
-16
-20
-24
-28
-32
-36
+ticks   A   B   C     A    B    C   to run
+-----  --  --  --      --   --   --   ------
+ 0      0   0   0      63  61  59     A
+ 4      4   0   0      62  61  59     A
+ 8      8   0   0      61  61  59     A
+12     12  0   0      60  61  59     B
+16     12  4   0      60  61  59     B
+20     12  8   0      60  59  59     A
+24     16  8   0      59  59  59     A
+28     20  8   0      58  59  59     C
+32     20  8   4      58  59  58     B
+36     20 12   4     58  58   58     B
 
 >> C3: Did any ambiguities in the scheduler specification make values
 >> in the table uncertain?  If so, what rule did you use to resolve
@@ -148,9 +338,11 @@ the quarter.
 
 >> In your opinion, was this assignment, or any one of the three problems
 >> in it, too easy or too hard?  Did it take too long or too little time?
+too hard. 
 
 >> Did you find that working on a particular part of the assignment gave
 >> you greater insight into some aspect of OS design?
+네.
 
 >> Is there some particular fact or hint we should give students in
 >> future quarters to help them solve the problems?  Conversely, did you
@@ -158,5 +350,9 @@ the quarter.
 
 >> Do you have any suggestions for the TAs to more effectively assist
 >> students, either for future quarters or the remaining projects?
+전프구와 임베디드 시스템과 같이 특정 날마다 Q&A 세션이 있으면 좋겠습니다.
+수요일날 실습설명을 늘리고 Q&A 세션을 줄이는 것이 좋다고 생각합니다.  
 
 >> Any other comments?
+팀메이트와 서로 연락이 닿지 않아서, 
+처음부터 끝까지 혼자 했는데 이번 프로젝트는 혼자의 점수로 평가 받을 수 있는지 여쭙고 싶습니다.
