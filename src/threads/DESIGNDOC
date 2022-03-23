@@ -20,6 +20,13 @@ Dongju Kim <dongju0531hb@kaist.ac.kr>
 >> preparing your submission, other than the Pintos documentation, course
 >> text, lecture notes, and course staff.
 
+pintos를 전체 경로에서 실행시키기 위해서는 반드시
+~/.bashrc 파일에 마지막에 아래 문장을 추가해야 합니다.
+export PATH="$PATH:/home/ubuntu/pintos_ee415/src/utils"
+
+$ vim ~/.bashrc
+$ source ~/.bashrc
+
 Alarm Scheduling - https://oslab.kaist.ac.kr/wp-content/uploads/esos_files/courseware/undergraduate/PINTOS/06_Alarm_System_Call.pdf
 Priority Scheduling - https://oslab.kaist.ac.kr/wp-content/uploads/esos_files/courseware/undergraduate/PINTOS/07_Priority_Scheduling.pdf
 Priority Inversion Problem - https://oslab.kaist.ac.kr/wp-content/uploads/esos_files/courseware/undergraduate/PINTOS/09_Priority_Inversion_Problem.pdf
